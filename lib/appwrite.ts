@@ -1,10 +1,11 @@
 // Use the React Native SDK to enable cookie fallbacks and mobile OAuth helpers
+import { PropertyDocument } from "@/components/Cards";
 import { gallery } from "@/constants/data";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { openAuthSessionAsync } from "expo-web-browser";
 import { Platform } from "react-native";
-import { Account, Avatars, Client, Databases, OAuthProvider } from "react-native-appwrite";
+import { Account, Avatars, Client, Databases, OAuthProvider, Query } from "react-native-appwrite";
 
 export const config = {
   endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
@@ -106,4 +107,63 @@ export async function getCurrentUser() {
         return null;
     }
 }
+export async function getLatesProperties() {
+    try {
+        const result = await databases.listDocuments(
+            config.databaseId!,
+            config.propertiesCollectionId!,
+            [Query.orderDesc("$createdAt"), Query.limit(5)]
+        );
+        return result.documents as unknown as PropertyDocument[];;
+    } catch (error) {
+        console.log(error);
+        return [];
+    }
+}
+export async function getProperties({filter ,query, limit}: {filter: string; query: string; limit?: number}) {
+  try {
+    const buildQuery: any[] = [Query.orderDesc("$createdAt")];
 
+    // CATEGORY FILTER
+    if (filter && filter !== "all" && filter !== "All") {
+      buildQuery.push(Query.equal("type", filter));
+    }
+    // SEARCH (OR conditions)
+    if (query) {
+      buildQuery.push(
+        Query.or([
+          Query.search("name", query),
+          Query.search("address", query),
+          Query.search("type", query),
+        ])
+      );
+    }
+    if (limit) {
+      buildQuery.push(Query.limit(limit));
+    }
+    const result = await databases.listDocuments(
+            config.databaseId!,
+            config.propertiesCollectionId!,
+            buildQuery,
+        );
+        return result.documents as unknown as PropertyDocument[];;
+
+  }
+  catch (error) {
+      console.log(error);
+      return [];
+  }
+}
+export async function getPropertyById({ id }: { id: string }){
+   try {
+    const result = await databases.getDocument(
+        config.databaseId!,
+        config.propertiesCollectionId!,
+        id
+    );
+    return result;
+   } catch (error) {
+    console.log(error);
+    return null;
+   }
+}
