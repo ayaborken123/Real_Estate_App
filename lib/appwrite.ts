@@ -1,12 +1,10 @@
 // Use the React Native SDK to enable cookie fallbacks and mobile OAuth helpers
 import { PropertyDocument } from "@/components/Cards";
-import { gallery } from "@/constants/data";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { openAuthSessionAsync } from "expo-web-browser";
 import { Platform } from "react-native";
-import { Account, Avatars, Client, Databases, OAuthProvider, Query } from "react-native-appwrite";
-
+import { Account, Avatars, Client, Databases, ID, OAuthProvider, Query, Storage } from "react-native-appwrite";
 export const config = {
   endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
   projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
@@ -15,6 +13,8 @@ export const config = {
   agentsCollectionId: process.env.EXPO_PUBLIC_APPWRITE_AGENTS_COLLECTION_ID,
   reviewsCollectionId: process.env.EXPO_PUBLIC_APPWRITE_REVIEWS_COLLECTION_ID,
   propertiesCollectionId: process.env.EXPO_PUBLIC_APPWRITE_PROPERTIES_COLLECTION_ID,
+  profileImagesBucketId: process.env.EXPO_PUBLIC_APPWRITE_PROFILE_IMAGES_BUCKET_ID || "profile-images",
+  favoritesCollectionId: process.env.EXPO_PUBLIC_APPWRITE_FAVORITES_COLLECTION_ID || "favorites",
 };
 
 // Determine correct platform identifier for Appwrite origin validation.
@@ -36,6 +36,7 @@ console.log("Appwrite platform set to:", platformId);
 export const account = new Account(client);
 export const avatar = new Avatars(client);
 export const databases = new Databases(client);
+export const storage = new Storage(client);
 
 export async function login() {
   try {
@@ -93,11 +94,16 @@ export async function getCurrentUser() {
     try {
         const result = await account.get();
         if (result.$id) {
-            const userAvatar = avatar.getInitials(result.name);
+            // Get user preferences for custom fields
+            const prefs = result.prefs || {};
+            const userAvatar = prefs.photoURL || avatar.getInitials(result.name).toString();
 
             return {
                 ...result,
-                avatar: userAvatar.toString(),
+                avatar: userAvatar,
+                phone: prefs.phone || "",
+                bio: prefs.bio || "",
+                photoURL: prefs.photoURL || "",
             };
         }
 
@@ -166,4 +172,252 @@ export async function getPropertyById({ id }: { id: string }){
     console.log(error);
     return null;
    }
+}
+
+// Profile Update Functions
+
+export async function updateUserName(name: string) {
+  try {
+    await account.updateName(name);
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating name:", error);
+    return { success: false, error };
+  }
+}
+
+export async function updateUserPreferences(prefs: { phone?: string; bio?: string; photoURL?: string }) {
+  try {
+    const currentUser = await account.get();
+    const currentPrefs = currentUser.prefs || {};
+    
+    // Merge with existing preferences
+    const updatedPrefs = {
+      ...currentPrefs,
+      ...prefs,
+    };
+    
+    await account.updatePrefs(updatedPrefs);
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating preferences:", error);
+    return { success: false, error };
+  }
+}
+
+export async function uploadProfileImage(imageUri: string) {
+  try {
+    console.log("Starting upload...");
+    console.log("Bucket ID:", config.profileImagesBucketId);
+    console.log("Image URI:", imageUri);
+    
+    const filename = imageUri.split('/').pop() || `profile-${Date.now()}.jpg`;
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+    // Fetch the file as a blob
+    console.log("Fetching file from URI...");
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    
+    console.log("Blob size:", blob.size);
+    console.log("Blob type:", blob.type);
+    
+    // Create a custom object that mimics a File for React Native Appwrite
+    const fileObject = {
+      name: filename,
+      type: type,
+      size: blob.size,
+      uri: imageUri,
+      // Add blob data methods
+      slice: blob.slice.bind(blob),
+      stream: blob.stream?.bind(blob),
+      text: blob.text?.bind(blob),
+      arrayBuffer: blob.arrayBuffer?.bind(blob),
+    };
+    
+    console.log("File object created:", fileObject.name, fileObject.size, fileObject.type);
+    console.log("Uploading to Appwrite...");
+
+    const uploadedFile = await storage.createFile(
+      config.profileImagesBucketId!,
+      ID.unique(),
+      fileObject as any
+    );
+
+    console.log("Upload result:", uploadedFile);
+
+    if (!uploadedFile || !uploadedFile.$id) {
+      throw new Error("File upload returned undefined or missing $id");
+    }
+
+    const fileUrl = `${config.endpoint}/storage/buckets/${config.profileImagesBucketId}/files/${uploadedFile.$id}/view?project=${config.projectId}`;
+    
+    console.log("Upload successful! File URL:", fileUrl);
+
+    return { success: true, fileUrl, fileId: uploadedFile.$id };
+  } catch (error: any) {
+    console.error("Error uploading profile image:", error);
+    console.error("Error message:", error?.message);
+    console.error("Full error:", JSON.stringify(error, null, 2));
+    return { success: false, error };
+  }
+}
+
+
+export async function deleteProfileImage(fileId: string) {
+  try {
+    await storage.deleteFile(config.profileImagesBucketId!, fileId);
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting profile image:", error);
+    return { success: false, error };
+  }
+}
+
+// Favorites Functions
+
+export async function addFavorite(propertyId: string) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    const favorite = await databases.createDocument(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      ID.unique(),
+      {
+        userId: user.$id,
+        propertyId: propertyId,
+        favoriteDate: new Date().toISOString(),
+        notes: "",
+        isShared: false,
+        sharedWith: [],
+      }
+    );
+
+    return { success: true, favorite };
+  } catch (error: any) {
+    // If error is duplicate (409), it's already favorited
+    if (error?.code === 409) {
+      return { success: true, message: "Already in favorites" };
+    }
+    console.error("Error adding favorite:", error);
+    return { success: false, error };
+  }
+}
+
+export async function removeFavorite(propertyId: string) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Find the favorite document
+    const favorites = await databases.listDocuments(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      [
+        Query.equal("userId", user.$id),
+        Query.equal("propertyId", propertyId),
+      ]
+    );
+
+    if (favorites.documents.length === 0) {
+      return { success: true, message: "Not in favorites" };
+    }
+
+    // Delete the favorite
+    await databases.deleteDocument(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      favorites.documents[0].$id
+    );
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error removing favorite:", error);
+    return { success: false, error };
+  }
+}
+
+export async function getFavorites() {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return [];
+    }
+
+    const favorites = await databases.listDocuments(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      [Query.equal("userId", user.$id), Query.orderDesc("$createdAt")]
+    );
+
+    // Get full property details for each favorite
+    const propertyIds = favorites.documents.map((fav: any) => fav.propertyId);
+    
+    if (propertyIds.length === 0) {
+      return [];
+    }
+
+    // Fetch all favorite properties
+    const properties = await databases.listDocuments(
+      config.databaseId!,
+      config.propertiesCollectionId!,
+      [Query.equal("$id", propertyIds)]
+    );
+
+    return properties.documents as unknown as PropertyDocument[];
+  } catch (error) {
+    console.error("Error getting favorites:", error);
+    return [];
+  }
+}
+
+export async function getFavoriteIds() {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return [];
+    }
+
+    const favorites = await databases.listDocuments(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      [Query.equal("userId", user.$id)]
+    );
+
+    return favorites.documents.map((fav: any) => fav.propertyId);
+  } catch (error) {
+    console.error("Error getting favorite IDs:", error);
+    return [];
+  }
+}
+
+export async function isFavorite(propertyId: string) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return false;
+    }
+
+    const favorites = await databases.listDocuments(
+      config.databaseId!,
+      config.favoritesCollectionId!,
+      [
+        Query.equal("userId", user.$id),
+        Query.equal("propertyId", propertyId),
+        Query.limit(1),
+      ]
+    );
+
+    return favorites.documents.length > 0;
+  } catch (error) {
+    console.error("Error checking favorite:", error);
+    return false;
+  }
 }

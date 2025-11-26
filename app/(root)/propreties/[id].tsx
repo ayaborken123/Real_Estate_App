@@ -1,23 +1,24 @@
+import { router, useLocalSearchParams } from "expo-router";
 import {
+  ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
+  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
-  Dimensions,
-  Platform,
-  ActivityIndicator,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
 
+import Comment from "@/components/Comment";
+import FavoriteButton from "@/components/FavoriteButton";
+import { facilities } from "@/constants/data";
 import icons from "@/constants/icons";
 import images from "@/constants/images";
-import Comment from "@/components/Comment";
-import { facilities } from "@/constants/data";
 
-import { useAppwrite } from "@/lib/useAppwrite";
 import { getPropertyById } from "@/lib/appwrite";
+import { useAppwrite } from "@/lib/useAppwrite";
 
 const Property = () => {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -79,11 +80,9 @@ const Property = () => {
               </TouchableOpacity>
 
               <View className="flex flex-row items-center gap-3">
-                <Image
-                  source={icons.heart}
-                  className="size-7"
-                  tintColor={"#191D31"}
-                />
+                <TouchableOpacity className="bg-white/90 rounded-full p-2.5">
+                  <FavoriteButton propertyId={id!} size={24} />
+                </TouchableOpacity>
                 <Image source={icons.send} className="size-7" />
               </View>
             </View>

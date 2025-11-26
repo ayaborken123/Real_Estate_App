@@ -1,6 +1,7 @@
 import icons from '@/constants/icons';
 import { logout } from '@/lib/appwrite';
 import { useGlobalContext } from '@/lib/global-provider';
+import { router } from 'expo-router';
 import React from 'react';
 import {
     Alert,
@@ -66,8 +67,11 @@ const Profile = () => {
                 </View>
                     <View className="flex-row justify-center flex mt-5" >
                         <View className="flex flex-col items-center relative mt-5" >
-                                                        <Image source={user?.avatar ? { uri: user.avatar } : icons.person} className="size-44 rounded-full"/>
-                            <TouchableOpacity className="absolute bottom-11 right-2">
+                            <Image source={user?.avatar ? { uri: user.avatar } : icons.person} className="size-44 rounded-full"/>
+                            <TouchableOpacity 
+                                className="absolute bottom-11 right-2"
+                                onPress={() => router.push('/(root)/(tabs)/edit-profile')}
+                            >
                                 <Image source={icons.edit } className="size-9"/>
                             </TouchableOpacity>
                             <Text className="text-2xl font-rubik-bold mt-2">{user?.name}</Text>
@@ -75,7 +79,12 @@ const Profile = () => {
                     </View>
 
                     <View className="flex flex-col mt-10">
-                                                <SettingsItem icon={icons.calendar} title="My Bookings" />
+                        <SettingsItem 
+                            icon={icons.person} 
+                            title="Edit Profile" 
+                            onPress={() => router.push('/(root)/(tabs)/edit-profile')}
+                        />
+                        <SettingsItem icon={icons.calendar} title="My Bookings" />
                         <SettingsItem icon={icons.wallet} title="Payments" />
                     </View>
                                         <View className="flex flex-col mt-5 border-t pt-5 border-primary-200">

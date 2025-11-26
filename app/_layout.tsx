@@ -1,3 +1,4 @@
+import FavoritesProvider from "@/lib/favorites-provider";
 import GlobalProvider from "@/lib/global-provider";
 import { useFonts } from "expo-font";
 import { SplashScreen, Stack } from "expo-router";
@@ -26,7 +27,9 @@ export default function RootLayout() {
   return(
       <GestureHandlerRootView style={{ flex: 1 }}>
           <GlobalProvider>
-              <Stack screenOptions={{headerShown: false}}/>
+              <FavoritesProvider>
+                  <Stack screenOptions={{headerShown: false}}/>
+              </FavoritesProvider>
           </GlobalProvider>
       </GestureHandlerRootView>
 
