@@ -1,23 +1,23 @@
 import icons from "@/constants/icons";
 import {
-    BookingDocument,
-    getAgentBookings,
-    getCurrentUser,
-    updateBookingStatus,
+  BookingDocument,
+  getAgentBookings,
+  getCurrentUser,
+  updateBookingStatus,
 } from "@/lib/appwrite";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -27,6 +27,7 @@ export default function BookingRequests() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | "pending" | "confirmed" | "cancelled">("pending");
+  const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Reject modal state
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -43,18 +44,18 @@ export default function BookingRequests() {
       }
 
       // Load bookings where current user is the agent (property owner)
+      setCurrentUser(user);
       const fetchedBookings = await getAgentBookings(user.$id);
       setBookings(fetchedBookings);
     } catch (error: any) {
       console.error("Error loading booking requests:", error);
       const errorMsg = error?.message || "Failed to load booking requests";
       Alert.alert(
-        "Permission Error", 
+        "Permission Error",
         `${errorMsg}\n\nPlease configure permissions in Appwrite:\n1. Go to Bookings collection\n2. Settings → Permissions\n3. Add 'users' role with 'read' permission`
       );
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
@@ -67,32 +68,18 @@ export default function BookingRequests() {
     loadBookings();
   };
 
-  const handleAcceptBooking = (booking: BookingDocument) => {
-    Alert.alert(
-      "Accept Booking",
-      `Accept booking from ${booking.guest?.name || "Guest"} for ${booking.numberOfNights} nights?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Accept",
-          onPress: async () => {
-            try {
-              setProcessingAction(true);
-              await updateBookingStatus(booking.$id, "confirmed");
-              Alert.alert(
-                "Success",
-                "Booking accepted! The guest has been notified."
-              );
-              loadBookings();
-            } catch (error) {
-              Alert.alert("Error", "Failed to accept booking");
-            } finally {
-              setProcessingAction(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleAcceptBooking = async (booking: BookingDocument) => {
+    try {
+      setProcessingAction(true);
+      await updateBookingStatus(booking.$id, "confirmed");
+      Alert.alert("Success", "Booking accepted.");
+      loadBookings();
+    } catch (error) {
+      console.error("Accept booking error", error);
+      Alert.alert("Error", "Failed to accept booking");
+    } finally {
+      setProcessingAction(false);
+    }
   };
 
   const handleRejectBooking = (booking: BookingDocument) => {
@@ -176,33 +163,34 @@ export default function BookingRequests() {
 
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <View className="px-5 py-4 border-b border-gray-200">
-        <Text className="text-2xl font-rubik-bold text-black-300">
-          Booking Requests
-        </Text>
-        <Text className="text-sm font-rubik text-black-200 mt-1">
-          Manage bookings for your properties
-        </Text>
+      <View className="px-5 py-2 border-b border-gray-200">
+          <Text className="text-2xl font-rubik-bold text-black-300">
+            Booking Requests
+          </Text>
+          <Text className="text-sm font-rubik text-black-200 mt-0">
+            Manage bookings for your properties
+          </Text>
       </View>
 
       {/* Filter Tabs */}
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="px-5 py-4 border-b border-gray-200"
-      >
-        <View className="flex-row gap-2">
-          {["pending", "confirmed", "all", "cancelled"].map((status) => (
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="px-4 py-0 border-b border-gray-200"
+          contentContainerStyle={{ paddingVertical: 0 }}
+        >
+          <View className="flex-row items-center gap-2">
+          {['all', 'pending', 'confirmed', 'cancelled'].map((status) => (
             <TouchableOpacity
               key={status}
               onPress={() => setFilter(status as any)}
-              className={`px-4 py-2 rounded-full ${
-                filter === status ? "bg-primary-300" : "bg-gray-100"
+              className={`px-5 py-2 rounded-full ${
+                filter === status ? 'bg-primary-300' : 'bg-gray-100'
               }`}
             >
               <Text
-                className={`font-rubik-medium capitalize ${
-                  filter === status ? "text-white" : "text-black-200"
+                className={`text-sm font-rubik-medium capitalize ${
+                  filter === status ? 'text-white' : 'text-black-300'
                 }`}
               >
                 {status}
@@ -213,28 +201,37 @@ export default function BookingRequests() {
       </ScrollView>
 
       <ScrollView
-        className="flex-1"
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+          className="flex-1"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          contentContainerStyle={{ paddingTop: 0 }}
+        >
         {filteredBookings.length === 0 ? (
-          <View className="flex-1 items-center justify-center py-20">
-            <Image source={icons.calendar} className="w-20 h-20 mb-4" tintColor="#999" />
-            <Text className="text-lg font-rubik-medium text-black-200 mb-2">
-              No {filter !== "all" ? filter : ""} booking requests
-            </Text>
-            <Text className="text-sm font-rubik text-black-200 text-center px-10">
-              Booking requests for your properties will appear here
-            </Text>
-          </View>
-        ) : (
-          <View className="p-5 gap-4">
+            <View className="flex-1 items-center justify-center py-8">
+              <Image source={icons.calendar} className="w-20 h-20 mb-4" tintColor="#999" />
+              <Text className="text-lg font-rubik-medium text-black-200 mb-2">
+                No {filter !== "all" ? filter : ""} booking requests
+              </Text>
+              <Text className="text-sm font-rubik text-black-200 text-center px-6">
+                Booking requests for your properties will appear here
+              </Text>
+            </View>
+          ) : (
+            <View className="p-2 gap-2">
             {filteredBookings.map((booking) => (
               <View
                 key={booking.$id}
-                className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
+                className="bg-white border border-gray-200 rounded-2xl p-3 shadow-sm relative"
               >
+                {/* Role badge: Owner (you) or Guest */}
+                <View className="absolute right-6 top-4 z-10">
+                  <View className={`px-3 py-1 rounded-full ${booking.agent?.$id === currentUser?.$id ? 'bg-primary-100' : 'bg-gray-100'}`}>
+                    <Text className={`${booking.agent?.$id === currentUser?.$id ? 'text-primary-300' : 'text-black-200'} text-xs font-rubik-medium`}>
+                      {booking.agent?.$id === currentUser?.$id ? 'Owner' : 'Guest'}
+                    </Text>
+                  </View>
+                </View>
                 {/* Property Info */}
                 {booking.property && (
                   <TouchableOpacity
@@ -249,6 +246,13 @@ export default function BookingRequests() {
                     <Text className="text-sm font-rubik text-black-200 mt-1">
                       {booking.property.address}
                     </Text>
+                    {booking.agent?.$id === currentUser?.$id ? (
+                      <Text className="text-xs font-rubik text-primary-300 mt-1">Your property</Text>
+                    ) : (
+                      booking.agent?.name && (
+                        <Text className="text-xs font-rubik text-black-200 mt-1">Owner: {booking.agent.name}</Text>
+                      )
+                    )}
                   </TouchableOpacity>
                 )}
 
@@ -406,7 +410,7 @@ export default function BookingRequests() {
                 )}
 
                 {/* Booked time info */}
-                <View className="mt-3 pt-3 border-t border-gray-200">
+                <View className="mt-2 pt-2 border-t border-gray-200">
                   <Text className="text-xs font-rubik text-black-200">
                     Requested on{" "}
                     {new Date(booking.$createdAt).toLocaleDateString("en-US", {

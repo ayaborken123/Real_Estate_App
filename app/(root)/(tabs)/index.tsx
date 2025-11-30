@@ -102,7 +102,7 @@ export default function Index() {
 
           <View className="my-5">
             <View className="flex flex-row items-center justify-between">
-              <Text className="text-xl font-rubik-bold text-black-300">Featuredddddddd</Text>
+              <Text className="text-xl font-rubik-bold text-black-300">Featured</Text>
               <TouchableOpacity>
                 <Text className="text-base font-rubik-bold text-primary-300">See All</Text>
               </TouchableOpacity>

@@ -3,14 +3,14 @@ import { BookingDocument, cancelBooking, createPaymentRecord, getCurrentUser, ge
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -20,6 +20,7 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | "pending" | "confirmed" | "cancelled">("all");
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   const loadBookings = async () => {
     try {
@@ -29,6 +30,7 @@ export default function Bookings() {
         return;
       }
 
+      setCurrentUser(user);
       const fetchedBookings = await getUserBookings(user.$id);
       setBookings(fetchedBookings);
     } catch (error: any) {
@@ -132,7 +134,7 @@ export default function Bookings() {
 
   return (
     <SafeAreaView className="flex-1 bg-white">
-      <View className="px-5 py-4 border-b border-gray-200">
+      <View className="px-5 py-1 border-b border-gray-200">
         <Text className="text-2xl font-rubik-bold text-black-300">My Bookings</Text>
       </View>
 
@@ -140,20 +142,20 @@ export default function Bookings() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        className="px-5 py-4 border-b border-gray-200"
+        className="px-5 py-0 border-b border-gray-200"
       >
-        <View className="flex-row gap-2">
-          {["all", "pending", "confirmed", "cancelled"].map((status) => (
+        <View className="flex-row items-center gap-2 ">
+          {['all', 'pending', 'confirmed', 'cancelled'].map((status) => (
             <TouchableOpacity
               key={status}
               onPress={() => setFilter(status as any)}
-              className={`px-4 py-2 rounded-full ${
-                filter === status ? "bg-primary-300" : "bg-gray-100"
+              className={`px-5 py-2 rounded-full ${
+                filter === status ? 'bg-primary-300' : 'bg-gray-100'
               }`}
             >
               <Text
-                className={`font-rubik-medium capitalize ${
-                  filter === status ? "text-white" : "text-black-200"
+                className={`text-sm font-rubik-medium capitalize ${
+                  filter === status ? 'text-white' : 'text-black-300'
                 }`}
               >
                 {status}
@@ -168,12 +170,12 @@ export default function Bookings() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {filteredBookings.length === 0 ? (
-          <View className="flex-1 items-center justify-center py-20">
+          <View className="flex-1 items-center justify-center py-8">
             <Image source={icons.calendar} className="w-20 h-20 mb-4" tintColor="#999" />
             <Text className="text-lg font-rubik-medium text-black-200 mb-2">
               No {filter !== "all" ? filter : ""} bookings found
             </Text>
-            <Text className="text-sm font-rubik text-black-200 text-center px-10 mb-6">
+            <Text className="text-sm font-rubik text-black-200 text-center px-6 mb-4">
               Your booking requests will appear here
             </Text>
             <TouchableOpacity
@@ -184,27 +186,40 @@ export default function Bookings() {
             </TouchableOpacity>
           </View>
         ) : (
-          <View className="p-5 gap-4">
+          <View className="p-2 gap-2">
             {filteredBookings.map((booking) => (
               <TouchableOpacity
                 key={booking.$id}
                 onPress={() => router.push(`/(root)/propreties/${booking.propertyId}`)}
-                className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm"
+                className="bg-white border border-gray-200 rounded-2xl p-2 shadow-sm"
               >
+                {/* Role badge: Owner vs Guest */}
+                <View className="absolute right-4 top-2 z-10">
+                  <View className={`px-2 py-1 rounded-full ${booking.agent?.$id === currentUser?.$id ? 'bg-primary-100' : 'bg-gray-100'}`}>
+                    <Text className={`${booking.agent?.$id === currentUser?.$id ? 'text-primary-300' : 'text-black-200'} text-xs font-rubik-medium`}>
+                      {booking.agent?.$id === currentUser?.$id ? 'Owner' : 'Guest'}
+                    </Text>
+                  </View>
+                </View>
                 {/* Property Info */}
                 {booking.property && (
-                  <View className="mb-3">
+                  <View className="mb-2">
                     <Text className="text-lg font-rubik-bold text-black-300">
                       {booking.property.name}
                     </Text>
                     <Text className="text-sm font-rubik text-black-200 mt-1">
                       {booking.property.address}
                     </Text>
+                    {booking.agent?.name && (
+                      <Text className="text-xs font-rubik text-black-200 mt-1">
+                        Rented from {booking.agent.name}
+                      </Text>
+                    )}
                   </View>
                 )}
 
                 {/* Dates */}
-                <View className="flex-row justify-between mb-3">
+                <View className="flex-row justify-between mb-2">
                   <View className="flex-1">
                     <Text className="text-xs font-rubik text-black-200 mb-1">Check-in</Text>
                     <Text className="text-sm font-rubik-semibold text-black-300">
@@ -228,7 +243,7 @@ export default function Bookings() {
                 </View>
 
                 {/* Details */}
-                <View className="flex-row justify-between mb-3">
+                <View className="flex-row justify-between mb-2">
                   <View>
                     <Text className="text-xs font-rubik text-black-200">Guests</Text>
                     <Text className="text-sm font-rubik-semibold text-black-300">
@@ -250,7 +265,7 @@ export default function Bookings() {
                 </View>
 
                 {/* Status Badges */}
-                <View className="flex-row gap-2 mb-3">
+                <View className="flex-row gap-2 mb-2">
                   <View className={`px-3 py-1 rounded-full ${getStatusColor(booking.status)}`}>
                     <Text className="text-xs font-rubik-medium capitalize">
                       {booking.status}
@@ -269,7 +284,7 @@ export default function Bookings() {
 
                 {/* Rejection Reason */}
                 {booking.status === "rejected" && booking.rejectionReason && (
-                  <View className="bg-red-50 p-3 rounded-lg mb-3">
+                  <View className="bg-red-50 p-2 rounded-lg mb-2">
                     <Text className="text-xs font-rubik-medium text-red-800 mb-1">
                       Rejection Reason:
                     </Text>
@@ -304,7 +319,7 @@ export default function Bookings() {
                           }
                         })();
                       }}
-                      className="flex-1 bg-primary-300 py-2 rounded-full"
+                      className="flex-1 bg-primary-300 py-1.5 rounded-full"
                     >
                       <Text className="text-white text-center font-rubik-bold text-sm">
                         Pay Now
@@ -315,7 +330,7 @@ export default function Bookings() {
                   {(booking.status === "pending" || booking.status === "confirmed") && (
                     <TouchableOpacity
                       onPress={() => handleCancelBooking(booking.$id, booking)}
-                      className="flex-1 bg-red-500 py-2 rounded-full"
+                      className="flex-1 bg-red-500 py-1.5 rounded-full"
                     >
                       <Text className="text-white text-center font-rubik-bold text-sm">
                         Cancel Booking
@@ -334,7 +349,7 @@ export default function Bookings() {
 
                 {/* Special Requests */}
                 {booking.specialRequests && (
-                  <View className="mt-3 pt-3 border-t border-gray-200">
+                    <View className="mt-2 pt-2 border-t border-gray-200">
                     <Text className="text-xs font-rubik-medium text-black-200 mb-1">
                       Special Requests:
                     </Text>
