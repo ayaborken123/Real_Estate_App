@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 import DateRangePicker from "@/components/DateRangePicker";
+import DirectionsButton from "@/components/DirectionsButton";
 import FavoriteButton from "@/components/FavoriteButton";
 import PropertiesMap from "@/components/PropertiesMap";
 import PropertyReviewsList from "@/components/PropertyReviewsList";
@@ -24,7 +25,7 @@ import icons from "@/constants/icons";
 import images from "@/constants/images";
 import { useLocation } from "@/hooks/useLocation";
 
-import { createBooking, createOrGetConversation, deleteProperty, getCurrentUser, getPropertyBookings, getPropertyById } from "@/lib/appwrite";
+import { createBooking, createOrGetConversation, deleteProperty, getAgentById, getCurrentUser, getPropertyBookings, getPropertyById } from "@/lib/appwrite";
 import { useGlobalContext } from "@/lib/global-provider";
 import { useAppwrite } from "@/lib/useAppwrite";
 
@@ -96,12 +97,15 @@ const Property = () => {
       
       console.log('Property agent data:', property.agent);
       
-      // Check if current user is the owner
+      // Get agent ID from property
       const agentId = typeof property.agent === 'string' ? property.agent : property.agent?.$id || property.agent?.id;
+      
+      // Check if current user is the owner
       if (user && agentId === user.$id) {
         setIsOwner(true);
         // Use current user data for agent info
         const userData = {
+          $id: user.$id,
           name: user.name,
           avatar: user.avatar,
           email: user.email,
@@ -111,16 +115,21 @@ const Property = () => {
         setAgentData(userData);
       } else {
         setIsOwner(false);
-        // Use property agent data
-        if (property.agent && typeof property.agent === 'object') {
-          const propAgentData = {
-            name: property.agent.name,
-            avatar: property.agent.avatar,
-            email: property.agent.email,
-            phone: property.agent.phone || ''
-          };
-          console.log('Setting agent data from property:', propAgentData);
-          setAgentData(propAgentData);
+        // Load agent data from database
+        if (agentId) {
+          try {
+            const agent = await getAgentById(agentId);
+            if (agent) {
+              console.log('Loaded agent data from database:', agent);
+              setAgentData(agent);
+            }
+          } catch (error) {
+            console.error('Error loading agent:', error);
+            // Fallback to property agent data if available
+            if (property.agent && typeof property.agent === 'object') {
+              setAgentData(property.agent);
+            }
+          }
         }
       }
     };
@@ -381,25 +390,25 @@ const Property = () => {
             </Text>
 
             <View className="flex flex-row items-center justify-between mt-4">
-              <View className="flex flex-row items-center">
+              <View className="flex flex-row items-center flex-1">
                 <Image
-                  source={{ uri: agentData?.avatar || prop.agent?.avatar }}
+                  source={{ uri: agentData?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(agentData?.name || 'Agent')}&size=200&background=0061FF&color=fff` }}
                   className="size-14 rounded-full"
                 />
 
-                <View className="flex flex-col items-start justify-center ml-3">
+                <View className="flex flex-col items-start justify-center ml-3 flex-1">
                   <Text className="text-lg text-black-300 text-start font-rubik-bold">
-                    {agentData?.name || (typeof prop.agent === 'object' ? prop.agent?.name : null) || 'Loading...'}
+                    {agentData?.name || 'Agent'}
                   </Text>
                   {agentData?.phone ? (
                     <Text className="text-sm text-black-200 text-start font-rubik-medium">
                       {agentData.phone}
                     </Text>
-                  ) : (
+                  ) : agentData?.email ? (
                     <Text className="text-sm text-black-200 text-start font-rubik-medium">
-                      {agentData?.email || prop.agent?.email}
+                      {agentData.email}
                     </Text>
-                  )}
+                  ) : null}
                 </View>
               </View>
 
@@ -488,12 +497,40 @@ const Property = () => {
           )}
 
           <View className="mt-7">
-            <Text className="text-black-300 text-xl font-rubik-bold">
-              Location
-            </Text>
-            <View className="flex flex-row items-center justify-start mt-4 gap-2">
+            <View className="flex flex-row items-center justify-between mb-2">
+              <Text className="text-black-300 text-xl font-rubik-bold">
+                Location
+              </Text>
+              {property.geolocation && (() => {
+                try {
+                  const geo = typeof property.geolocation === 'string' 
+                    ? JSON.parse(property.geolocation) 
+                    : property.geolocation;
+                  return (
+                    <DirectionsButton
+                      latitude={geo.latitude}
+                      longitude={geo.longitude}
+                      propertyName={property.name}
+                      userLatitude={location?.latitude}
+                      userLongitude={location?.longitude}
+                      size={24}
+                      color="#0061FF"
+                      style={{
+                        backgroundColor: 'rgba(0, 97, 255, 0.1)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                      }}
+                    />
+                  );
+                } catch (e) {
+                  return null;
+                }
+              })()}
+            </View>
+            <View className="flex flex-row items-center justify-start mt-2 gap-2">
               <Image source={icons.location} className="w-7 h-7" />
-              <Text className="text-black-200 text-sm font-rubik-medium">
+              <Text className="text-black-200 text-sm font-rubik-medium flex-1" numberOfLines={2}>
                 {property.address}
               </Text>
             </View>

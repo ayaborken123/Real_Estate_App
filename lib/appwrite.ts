@@ -1213,10 +1213,32 @@ export async function getUserConversations(userId?: string): Promise<Conversatio
       [
         Query.contains("participantIds", [user.$id]),
         Query.orderDesc("lastMessageAt"),
+        Query.limit(100),
       ]
     );
 
-    return conversations.documents as unknown as ConversationDocument[];
+    // Remove duplicates and filter out conversations without messages
+    const uniqueConversations = new Map<string, ConversationDocument>();
+    
+    (conversations.documents as unknown as ConversationDocument[]).forEach(conv => {
+      // Only include conversations that have at least one message
+      if (conv.lastMessage && conv.lastMessage.trim() !== '') {
+        // Check if we already have this conversation (by checking participant combination)
+        const otherParticipant = conv.participantIds.find(id => id !== user.$id);
+        const conversationKey = [user.$id, otherParticipant].sort().join('_');
+        
+        // Only add if not already added, or if this is a newer version (more recent lastMessageAt)
+        const existing = uniqueConversations.get(conversationKey);
+        if (!existing || new Date(conv.lastMessageAt) > new Date(existing.lastMessageAt)) {
+          uniqueConversations.set(conversationKey, conv);
+        }
+      }
+    });
+
+    // Convert map back to array and sort by lastMessageAt
+    return Array.from(uniqueConversations.values()).sort((a, b) => 
+      new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
   } catch (error) {
     console.error("Error getting user conversations:", error);
     return [];

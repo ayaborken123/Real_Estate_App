@@ -93,7 +93,7 @@ export default function AgentProfile() {
         return;
       }
 
-      const result = await createOrGetConversation(user.$id, agent.$id);
+      const result = await createOrGetConversation(agent.$id);
       
       if (result.success && result.conversation) {
         router.push({
