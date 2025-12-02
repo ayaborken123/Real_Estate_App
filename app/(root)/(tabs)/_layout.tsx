@@ -143,6 +143,12 @@ const TabsLayout = () => {
                         href: null,
                     }}
                 />
+                <Tabs.Screen
+                    name="payments"
+                    options={{
+                        href: null,
+                    }}
+                />
             </Tabs>
     );
 }

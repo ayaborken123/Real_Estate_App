@@ -150,7 +150,11 @@ const Profile = () => {
                                 }
                             }}
                         />
-                        <SettingsItem icon={icons.wallet} title="Payments" />
+                        <SettingsItem 
+                            icon={icons.wallet} 
+                            title="Payments" 
+                            onPress={() => router.push({ pathname: '/(root)/(tabs)/payments' } as any)}
+                        />
                     </View>
                                         <View className="flex flex-col mt-5 border-t pt-5 border-primary-200">
                                             {settings.slice(2).map((item, index) => (

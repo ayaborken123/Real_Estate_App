@@ -72,30 +72,42 @@ export const Card = ({item, onPress }: Props) => {
   return (
     <TouchableOpacity
       onPress={onPress}
-      className="flex-1 w-full mt-4 px-3 py-3 rounded-xl bg-white border border-primary-50 relative"
-      style={{
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 3,
-      }}
+      className="flex-1 w-full mt-4"
+      activeOpacity={0.95}
     >
-      <View className="flex flex-row items-center absolute px-2.5 py-1 top-5 right-5 bg-white/95 rounded-full z-50 shadow-sm">
-        <Image source={icons.star} className="w-3 h-3" />
-         <Text className="text-xs font-rubik-bold text-primary-300 ml-1">{rating > 0 ? rating.toFixed(1) : '0.0'}</Text>
-      </View>
+      <View
+        className="rounded-3xl bg-white p-3"
+        style={{
+          shadowColor: '#0F172A',
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
+          elevation: 5,
+        }}
+      >
+        <View className="relative">
+          <Image source={{ uri: imageUrl }} className="w-full h-40 rounded-2xl" resizeMode="cover" />
+          <View className="flex flex-row items-center absolute px-2.5 py-1 top-3 right-3 bg-black/55 rounded-full">
+            <Image source={icons.star} className="w-3.5 h-3.5" />
+            <Text className="text-xs font-rubik-bold text-white ml-1">{rating > 0 ? rating.toFixed(1) : '0.0'}</Text>
+          </View>
+          <View className="absolute top-3 left-3">
+            <FavoriteButton propertyId={item.$id} size={22} />
+          </View>
+        </View>
 
-      <Image source={{uri: imageUrl}} className="w-full h-40 rounded-lg" resizeMode="cover" />
-
-      <View className="flex flex-col mt-3">
-        <Text className="text-base font-rubik-bold text-black-300" numberOfLines={1}>{item.name}</Text>
-        <Text className="text-xs font-rubik text-black-200 mt-1" numberOfLines={1}>{item.address}</Text>
-        <View className="flex flex-row items-center justify-between mt-2.5">
-          <Text className="text-lg font-rubik-extrabold text-primary-300">
-            ${typeof item.price === 'number' ? (item.price as number).toLocaleString() : item.price}
-          </Text>
-          <FavoriteButton propertyId={item.$id} size={22} className="-mr-1" />
+        <View className="flex flex-col mt-4">
+          <Text className="text-base font-rubik-bold text-black-300" numberOfLines={1}>{item.name}</Text>
+          <Text className="text-xs font-rubik text-black-200 mt-1" numberOfLines={1}>{item.address}</Text>
+          <View className="flex flex-row items-center justify-between mt-3">
+            <Text className="text-lg font-rubik-extrabold text-primary-300">
+              ${typeof item.price === 'number' ? (item.price as number).toLocaleString() : item.price}
+            </Text>
+            <View className="flex flex-row items-center">
+              <Text className="text-[11px] font-rubik text-black-100 mr-1">per night</Text>
+              <Image source={icons.rightArrow} className="w-4 h-4" />
+            </View>
+          </View>
         </View>
       </View>
     </TouchableOpacity>

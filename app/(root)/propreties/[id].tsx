@@ -17,6 +17,7 @@ import {
 import DateRangePicker from "@/components/DateRangePicker";
 import DirectionsButton from "@/components/DirectionsButton";
 import FavoriteButton from "@/components/FavoriteButton";
+import PaymentMethodSheet, { PaymentMethod } from "@/components/PaymentMethodSheet";
 import PropertiesMap from "@/components/PropertiesMap";
 import PropertyReviewsList from "@/components/PropertyReviewsList";
 import ShareModal from "@/components/ShareModal";
@@ -25,9 +26,23 @@ import icons from "@/constants/icons";
 import images from "@/constants/images";
 import { useLocation } from "@/hooks/useLocation";
 
-import { createBooking, createOrGetConversation, deleteProperty, getAgentById, getCurrentUser, getPropertyBookings, getPropertyById } from "@/lib/appwrite";
+import { createBooking, createOrGetConversation, createPaymentRecord, deleteProperty, getAgentById, getCurrentUser, getPropertyBookings, getPropertyById } from "@/lib/appwrite";
 import { useGlobalContext } from "@/lib/global-provider";
 import { useAppwrite } from "@/lib/useAppwrite";
+
+type PriceDetails = {
+  numberOfNights: number;
+  subtotal: number;
+  serviceFee: number;
+  totalPrice: number;
+};
+
+interface PendingCheckout {
+  checkIn: string;
+  checkOut: string;
+  price: PriceDetails;
+  guestId: string;
+}
 
 const Property = () => {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -53,6 +68,9 @@ const Property = () => {
   const { location } = useLocation();
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
+  const [pendingCheckout, setPendingCheckout] = useState<PendingCheckout | null>(null);
+  const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   // Get all images from the images array
   const allImages = property ? (property.images || []).filter(Boolean) : [];
@@ -136,10 +154,19 @@ const Property = () => {
     checkOwnerAndLoadAgent();
   }, [property]);
 
-  const handleSelectDates = async (checkIn: string, checkOut: string, priceDetails: any) => {
+  const extractId = (value: any) => {
+    if (!value) return undefined;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      return value.$id || value.id;
+    }
+    return undefined;
+  };
+
+  const handleSelectDates = async (checkIn: string, checkOut: string, priceDetails: PriceDetails) => {
     try {
-      const user = await getCurrentUser();
-      if (!user) {
+      const current = await getCurrentUser();
+      if (!current) {
         Alert.alert('Connexion requise', 'Vous devez être connecté pour réserver');
         router.push('/sign-in' as any);
         return;
@@ -150,23 +177,72 @@ const Property = () => {
         return;
       }
 
-      const agentId = typeof property.agent === 'string' ? property.agent : property.agent?.$id || property.agent?.id;
+      setPendingCheckout({
+        checkIn,
+        checkOut,
+        price: priceDetails,
+        guestId: current.$id,
+      });
+      setPaymentSheetVisible(true);
+    } catch (error: any) {
+      console.error('Error preparing booking:', error);
+      Alert.alert('Error', error?.message || 'Échec de la réservation');
+    }
+  };
+
+  const handleCheckout = async (selection: { method: PaymentMethod; card?: { number: string } }) => {
+    if (!pendingCheckout || !property) {
+      return;
+    }
+
+    try {
+      setProcessingPayment(true);
+      const agentId = extractId(property.agent) || extractId(agentData);
 
       const booking = await createBooking({
-        propertyId: property!.$id,
-        guestId: user.$id,
-        agentId: agentId,
-        checkInDate: checkIn,
-        checkOutDate: checkOut,
+        propertyId: property.$id,
+        guestId: pendingCheckout.guestId,
+        agentId,
+        checkInDate: pendingCheckout.checkIn,
+        checkOutDate: pendingCheckout.checkOut,
         numberOfGuests: 1,
-        pricePerNight: Number(property!.price),
+        pricePerNight: Number(property.price),
       } as any);
 
-      Alert.alert('Success', 'Booking request created successfully');
+      const shouldCreateRecord = !!selection.method;
+      if (shouldCreateRecord && agentId) {
+        const status = selection.method === 'card' ? 'succeeded' : 'pending';
+        const lastFour = selection.card?.number
+          ? selection.card.number.replace(/\s+/g, '').slice(-4)
+          : undefined;
+
+        await createPaymentRecord({
+          bookingId: booking.$id,
+          userId: pendingCheckout.guestId,
+          agentId,
+          amount: pendingCheckout.price.totalPrice,
+          paymentMethod: selection.method,
+          paymentGateway: selection.method === 'card' ? 'mock-card' : selection.method,
+          transactionId: `PAY-${Date.now()}`,
+          status,
+          gatewayResponse: lastFour ? JSON.stringify({ last4: lastFour }) : undefined,
+        });
+      }
+
+      const confirmationMessage =
+        selection.method === 'card'
+          ? 'Payment completed and booking request created successfully'
+          : 'Booking request created. Payment details were shared with the host.';
+
+      Alert.alert('Success', confirmationMessage);
       router.push('/(root)/(tabs)/bookings' as any);
     } catch (error: any) {
-      console.error('Error creating booking:', error);
-      Alert.alert('Error', error?.message || 'Failed to create booking');
+      console.error('Error completing checkout:', error);
+      Alert.alert('Error', error?.message || 'Failed to complete booking');
+    } finally {
+      setProcessingPayment(false);
+      setPaymentSheetVisible(false);
+      setPendingCheckout(null);
     }
   };
 
@@ -615,6 +691,23 @@ const Property = () => {
         onSelectDates={handleSelectDates}
         pricePerNight={Number(prop.price)}
         unavailableDates={unavailableDates}
+      />
+
+      <PaymentMethodSheet
+        visible={paymentSheetVisible}
+        amount={pendingCheckout?.price.totalPrice || Number(prop.price)}
+        subtitle={
+          pendingCheckout
+            ? `${pendingCheckout.checkIn} → ${pendingCheckout.checkOut}`
+            : undefined
+        }
+        busy={processingPayment}
+        onClose={() => {
+          if (processingPayment) return;
+          setPaymentSheetVisible(false);
+          setPendingCheckout(null);
+        }}
+        onConfirm={handleCheckout}
       />
       
       {property && (

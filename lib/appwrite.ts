@@ -131,6 +131,7 @@ export interface BookingDocument extends Models.Document {
 export interface PaymentDocument extends Models.Document {
   bookingId: string;
   userId: string;
+  agentId: string;
   amount: number;
   currency: string;
   paymentMethod: string; // 'card', 'paypal', etc.
@@ -1813,6 +1814,97 @@ export async function createBooking(bookingData: {
   }
 }
 
+async function hydrateBookingRelationships(bookings: BookingDocument[]): Promise<BookingDocument[]> {
+  if (!bookings.length) {
+    return [];
+  }
+
+  try {
+    const propertyIds = Array.from(
+      new Set(bookings.map((booking) => booking.propertyId).filter(Boolean))
+    );
+    const userIds = Array.from(
+      new Set(
+        bookings
+          .flatMap((booking) => [booking.agentId, booking.guestId])
+          .filter(Boolean)
+      )
+    );
+
+    const propertyResult = propertyIds.length
+      ? await databases.listDocuments<PropertyDocument>(
+          config.databaseId!,
+          config.propertiesCollectionId!,
+          [Query.equal("$id", propertyIds), Query.limit(100)]
+        )
+      : { documents: [] as PropertyDocument[] };
+
+    const userResult = userIds.length
+      ? await databases.listDocuments(
+          config.databaseId!,
+          config.agentsCollectionId!,
+          [Query.equal("$id", userIds), Query.limit(100)]
+        )
+      : { documents: [] as any[] };
+
+    const propertyMap = new Map(
+      propertyResult.documents.map((property) => [property.$id, property])
+    );
+    const userMap = new Map(
+      userResult.documents.map((user: any) => [user.$id, user])
+    );
+
+    return bookings.map((booking) => ({
+      ...booking,
+      property:
+        booking.property ??
+        (booking.propertyId
+          ? (propertyMap.get(booking.propertyId) as PropertyDocument | undefined)
+          : undefined),
+      agent:
+        booking.agent ??
+        (booking.agentId ? (userMap.get(booking.agentId) as any) : undefined),
+      guest:
+        booking.guest ??
+        (booking.guestId ? (userMap.get(booking.guestId) as any) : undefined),
+    }));
+  } catch (error) {
+    console.error("Error hydrating bookings:", error);
+    return bookings;
+  }
+}
+
+async function hydratePaymentsWithBookings(payments: PaymentDocument[]): Promise<PaymentDocument[]> {
+  if (!payments.length) {
+    return [];
+  }
+
+  try {
+    const bookingIds = Array.from(new Set(payments.map((payment) => payment.bookingId).filter(Boolean)));
+
+    if (!bookingIds.length) {
+      return payments;
+    }
+
+    const bookingResult = await databases.listDocuments<BookingDocument>(
+      config.databaseId!,
+      config.bookingsCollectionId!,
+      [Query.equal('$id', bookingIds), Query.limit(100)]
+    );
+
+    const hydratedBookings = await hydrateBookingRelationships(bookingResult.documents);
+    const bookingMap = new Map(hydratedBookings.map((booking) => [booking.$id, booking]));
+
+    return payments.map((payment) => ({
+      ...payment,
+      booking: bookingMap.get(payment.bookingId) || payment.booking,
+    }));
+  } catch (error) {
+    console.error('Error hydrating payments with bookings:', error);
+    return payments;
+  }
+}
+
 /**
  * Get bookings for a user (as guest)
  */
@@ -1828,7 +1920,7 @@ export async function getUserBookings(userId: string): Promise<BookingDocument[]
       ]
     );
 
-    return bookings.documents;
+    return hydrateBookingRelationships(bookings.documents);
   } catch (error) {
     console.error("Error fetching user bookings:", error);
     throw error;
@@ -1856,7 +1948,7 @@ export async function getAgentBookings(agentId: string, status?: BookingStatus):
       queries
     );
 
-    return bookings.documents;
+    return hydrateBookingRelationships(bookings.documents);
   } catch (error) {
     console.error("Error fetching agent bookings:", error);
     throw error;
@@ -2177,38 +2269,86 @@ export function calculateRefund(
 export async function createPaymentRecord(paymentData: {
   bookingId: string;
   userId: string;
+  agentId: string;
   amount: number;
   currency?: string;
   paymentMethod?: string;
   paymentGateway?: string;
   transactionId?: string;
+  status?: PaymentDocument['status'];
+  receiptUrl?: string;
   gatewayResponse?: string;
 }): Promise<PaymentDocument> {
   try {
     const payload = {
       bookingId: paymentData.bookingId,
       userId: paymentData.userId,
+      agentId: paymentData.agentId,
       amount: paymentData.amount,
       currency: paymentData.currency || 'USD',
       paymentMethod: paymentData.paymentMethod || 'card',
       paymentGateway: paymentData.paymentGateway || 'mock',
       transactionId: paymentData.transactionId || ID.unique(),
-      status: 'succeeded',
+      status: paymentData.status || 'succeeded',
+      receiptUrl: paymentData.receiptUrl || null,
       gatewayResponse: paymentData.gatewayResponse || null,
     } as any;
 
-    const payment = await databases.createDocument<PaymentDocument>(
-      config.databaseId!,
-      config.paymentsCollectionId!,
-      ID.unique(),
-      payload
-    );
+    const createDocumentWithSchemaFallback = async (
+      data: Partial<PaymentDocument> & Record<string, any>
+    ): Promise<PaymentDocument> => {
+      try {
+        return await databases.createDocument<PaymentDocument>(
+          config.databaseId!,
+          config.paymentsCollectionId!,
+          ID.unique(),
+          data as any
+        );
+      } catch (error) {
+        let sanitized = false;
+        const nextPayload = { ...data };
 
-    // Mark booking as paid
-    try {
-      await updateBookingPaymentStatus(paymentData.bookingId, 'paid');
-    } catch (e) {
-      console.warn('Failed to update booking payment status after payment:', e);
+        if (isMissingAttributeError(error, 'userId') && 'userId' in nextPayload) {
+          console.warn(
+            'Payments collection missing "userId" attribute. The value will not be stored until the schema is updated.'
+          );
+          delete nextPayload.userId;
+          sanitized = true;
+        }
+
+        if (isMissingAttributeError(error, 'agentId') && 'agentId' in nextPayload) {
+          console.warn(
+            'Payments collection missing "agentId" attribute. The value will not be stored until the schema is updated.'
+          );
+          delete nextPayload.agentId;
+          sanitized = true;
+        }
+
+        if (sanitized) {
+          return createDocumentWithSchemaFallback(nextPayload);
+        }
+
+        throw error;
+      }
+    };
+
+    const payment = await createDocumentWithSchemaFallback(payload);
+
+    if ((payload.status || 'succeeded') === 'succeeded') {
+      try {
+        await updateBookingPaymentStatus(paymentData.bookingId, 'paid');
+      } catch (e) {
+        console.warn('Failed to update booking payment status after payment:', e);
+      }
+
+      try {
+        const booking = await getBooking(paymentData.bookingId);
+        if (booking.status === 'pending') {
+          await updateBookingStatus(paymentData.bookingId, 'confirmed');
+        }
+      } catch (e) {
+        console.warn('Failed to auto-confirm booking after payment:', e);
+      }
     }
 
     return payment;
@@ -2218,17 +2358,120 @@ export async function createPaymentRecord(paymentData: {
   }
 }
 
-export async function getUserPayments(userId: string): Promise<PaymentDocument[]> {
+const isMissingAttributeError = (error: unknown, attribute: string) => {
+  if (!error || typeof error !== 'object') return false;
+  const message =
+    (error as any)?.message || (error as any)?.response?.message || (error as any)?.type;
+  return (
+    typeof message === 'string' &&
+    message.toLowerCase().includes(attribute.toLowerCase()) &&
+    (
+      message.toLowerCase().includes('attribute not found in schema') ||
+      message.toLowerCase().includes('unknown attribute')
+    )
+  );
+};
+
+interface PaymentsListResult {
+  documents: PaymentDocument[];
+  attributeMissing: boolean;
+}
+
+const warnedMissingAttributes = new Set<string>();
+
+async function listPaymentsWithFallback(
+  field: 'userId' | 'agentId',
+  value: string
+): Promise<PaymentsListResult> {
   try {
     const res = await databases.listDocuments<PaymentDocument>(
       config.databaseId!,
       config.paymentsCollectionId!,
-      [Query.equal('userId', userId), Query.orderDesc('$createdAt')]
+      [Query.equal(field, value), Query.orderDesc('$createdAt'), Query.limit(100)]
+    );
+
+    return { documents: res.documents, attributeMissing: false };
+  } catch (error) {
+    if (!isMissingAttributeError(error, field)) {
+      throw error;
+    }
+
+    if (!warnedMissingAttributes.has(field)) {
+      console.warn(
+        `Payments collection is missing attribute "${field}". Falling back to client-side filtering. Add the attribute in Appwrite to fix this warning.`
+      );
+      warnedMissingAttributes.add(field);
+    }
+
+    const res = await databases.listDocuments<PaymentDocument>(
+      config.databaseId!,
+      config.paymentsCollectionId!,
+      [Query.orderDesc('$createdAt'), Query.limit(100)]
+    );
+
+    return { documents: res.documents, attributeMissing: true };
+  }
+}
+
+export async function getUserPayments(userId: string): Promise<PaymentDocument[]> {
+  try {
+    const { documents, attributeMissing } = await listPaymentsWithFallback('userId', userId);
+    const hydrated = await hydratePaymentsWithBookings(documents);
+
+    if (!attributeMissing) {
+      return hydrated;
+    }
+
+    return hydrated.filter((payment) => {
+      if (payment.userId === userId) return true;
+      const guestId = payment.booking?.guestId;
+      if (!guestId) return false;
+      if (typeof guestId === 'string') {
+        return guestId === userId;
+      }
+      return (guestId as any)?.$id === userId;
+    });
+  } catch (error) {
+    console.error('Error fetching user payments:', error);
+    return [];
+  }
+}
+
+export async function getAgentPayments(agentId: string): Promise<PaymentDocument[]> {
+  try {
+    const { documents, attributeMissing } = await listPaymentsWithFallback('agentId', agentId);
+    const hydrated = await hydratePaymentsWithBookings(documents);
+
+    if (!attributeMissing) {
+      return hydrated;
+    }
+
+    return hydrated.filter((payment) => {
+      if (payment.agentId === agentId) return true;
+      const bookingAgentId = payment.booking?.agentId;
+      if (!bookingAgentId) return false;
+      if (typeof bookingAgentId === 'string') {
+        return bookingAgentId === agentId;
+      }
+      return (bookingAgentId as any)?.$id === agentId;
+    });
+  } catch (error) {
+    console.error('Error fetching agent payments:', error);
+    return [];
+  }
+}
+
+export async function getAgentPayouts(agentId: string): Promise<PayoutDocument[]> {
+  try {
+    const res = await databases.listDocuments<PayoutDocument>(
+      config.databaseId!,
+      config.payoutsCollectionId!,
+      [Query.equal('agentId', agentId), Query.orderDesc('scheduledDate'), Query.limit(100)]
     );
 
     return res.documents;
   } catch (error) {
-    console.error('Error fetching user payments:', error);
+    console.error('Error fetching agent payouts:', error);
     return [];
   }
 }
