@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { settings } from '../../../constants/data';
+
 interface SettingsItemProps {
     icon: ImageSourcePropType;
     title: string;
@@ -46,6 +47,30 @@ const SettingsItem = ({
 
 const Profile = () => {
     const { user, refetch } = useGlobalContext();
+
+    if (!user) {
+        return (
+            <SafeAreaView className="h-full bg-white">
+                <View className="flex-1 items-center justify-center px-10">
+                    <Image source={icons.person} className="w-20 h-20 mb-6" tintColor="#CCCCCC" />
+                    <Text className="text-2xl font-rubik-bold text-black-300 text-center mb-3">
+                        Login Required
+                    </Text>
+                    <Text className="text-base font-rubik text-black-200 text-center mb-8">
+                        You need to sign in to view and manage your profile
+                    </Text>
+                    <TouchableOpacity
+                        onPress={() => router.push('/sign-in')}
+                        className="bg-primary-300 py-4 px-8 rounded-full w-full"
+                    >
+                        <Text className="text-white text-lg font-rubik-bold text-center">
+                            Sign In
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     const handleLogout = async () => {
         const result = await logout();

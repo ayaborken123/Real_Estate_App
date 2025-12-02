@@ -1,15 +1,22 @@
 import { Card, PropertyDocument } from '@/components/Cards';
 import icons from '@/constants/icons';
 import { deleteProperty, getMyProperties } from '@/lib/appwrite';
+import { useGlobalContext } from '@/lib/global-provider';
 import { useAppwrite } from '@/lib/useAppwrite';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import React, { useCallback } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function MyListings() {
+  const { user } = useGlobalContext();
+
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
+
   const { data: properties, loading, refetch } = useAppwrite<PropertyDocument[], any>({
     fn: getMyProperties,
     params: {},

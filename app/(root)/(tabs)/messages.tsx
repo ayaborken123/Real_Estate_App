@@ -1,4 +1,5 @@
 import AgentSelectorModal from '@/components/AgentSelectorModal';
+import icons from '@/constants/icons';
 import { useAgents } from '@/lib/agents-provider';
 import { client, config, ConversationDocument, createOrGetConversation, deleteConversation, getAgentById, getUserConversations, markConversationAsRead, searchAgentsByName } from '@/lib/appwrite';
 import { useGlobalContext } from '@/lib/global-provider';
@@ -6,21 +7,42 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const ChatListScreen = () => {
   const { user } = useGlobalContext();
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loginPrompt}>
+          <Image source={icons.chat} style={{ width: 80, height: 80, marginBottom: 24 }} tintColor="#CCCCCC" />
+          <Text style={styles.loginTitle}>Login Required</Text>
+          <Text style={styles.loginMessage}>
+            You need to sign in to view and send messages
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push('/sign-in')}
+            style={styles.loginButton}
+          >
+            <Text style={styles.loginButtonText}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const { getAgent, setAgent } = useAgents();
   const [conversations, setConversations] = useState<ConversationDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +127,8 @@ const ChatListScreen = () => {
         `databases.${config.databaseId}.collections.${config.conversationsCollectionId}.documents`,
         (response: any) => {
           try {
-            console.log('📞 Conversation realtime event:', response);
+            // Only process if we have valid events
+            if (!response.events || !response.events[0]) return;
             
             const payload = response.payload as ConversationDocument;
             
@@ -115,7 +138,6 @@ const ChatListScreen = () => {
             }
             
             if (response.events[0]?.includes('.create')) {
-              console.log('➕ New conversation:', payload);
               setConversations(prev => {
                 const exists = prev.some(conv => conv.$id === payload.$id);
                 if (exists) return prev;
@@ -125,7 +147,6 @@ const ChatListScreen = () => {
                 );
               });
             } else if (response.events[0]?.includes('.update')) {
-              console.log('🔄 Conversation updated:', payload);
               setConversations(prev => 
                 prev.map(conv => 
                   conv.$id === payload.$id ? payload : conv
@@ -135,15 +156,15 @@ const ChatListScreen = () => {
               );
             }
           } catch (error) {
-            console.error('❌ Conversation subscription error:', error);
+            // Silently handle errors
           }
         }
       );
       
-      console.log('🔔 Subscribed to conversations');
       return subscription;
     } catch (error) {
-      console.error('Error subscribing to conversations:', error);
+      // Silently handle subscription errors
+      return null;
     }
   };
 
@@ -731,6 +752,38 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  loginPrompt: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  loginTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  loginMessage: {
+    fontSize: 16,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  loginButton: {
+    backgroundColor: '#0061FF',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 9999,
+    width: '100%',
+  },
+  loginButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 

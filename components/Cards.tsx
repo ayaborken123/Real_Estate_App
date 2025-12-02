@@ -1,5 +1,6 @@
 import icons from '@/constants/icons';
 import images from '@/constants/images';
+import { usePropertyRating } from '@/hooks/usePropertyRating';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { Models } from 'react-native-appwrite';
 import FavoriteButton from './FavoriteButton';
@@ -24,6 +25,7 @@ interface Props {
 export const FeaturedCard = ({ item, onPress }: Props) => {
   // Get the first image from images array, fallback to legacy image field
   const imageUrl = item.images?.[0] || item.image || 'https://via.placeholder.com/400';
+  const { rating } = usePropertyRating(item.$id);
   
   return (
     <TouchableOpacity
@@ -37,7 +39,7 @@ export const FeaturedCard = ({ item, onPress }: Props) => {
       />
       <View className="flex flex-row items-center bg-white/90 px-3 py-1.5 rounded-full absolute top-5 right-5">
         <Image source={icons.star} className="w-3.5 h-3.5" />
-         <Text className="text-sm font-rubik-bold text-primary-300">{item.rating}</Text>
+         <Text className="text-sm font-rubik-bold text-primary-300">{rating > 0 ? rating.toFixed(1) : '0.0'}</Text>
       </View>
       <View className="absolute top-5 left-5 z-50">
         <FavoriteButton propertyId={item.$id} size={24} />
@@ -65,6 +67,7 @@ export const FeaturedCard = ({ item, onPress }: Props) => {
 export const Card = ({item, onPress }: Props) => {
   // Get the first image from images array, fallback to legacy image field
   const imageUrl = item.images?.[0] || item.image || 'https://via.placeholder.com/400';
+  const { rating } = usePropertyRating(item.$id);
   
   return (
     <TouchableOpacity
@@ -80,7 +83,7 @@ export const Card = ({item, onPress }: Props) => {
     >
       <View className="flex flex-row items-center absolute px-2.5 py-1 top-5 right-5 bg-white/95 rounded-full z-50 shadow-sm">
         <Image source={icons.star} className="w-3 h-3" />
-         <Text className="text-xs font-rubik-bold text-primary-300 ml-1">{item.rating}</Text>
+         <Text className="text-xs font-rubik-bold text-primary-300 ml-1">{rating > 0 ? rating.toFixed(1) : '0.0'}</Text>
       </View>
 
       <Image source={{uri: imageUrl}} className="w-full h-40 rounded-lg" resizeMode="cover" />

@@ -86,7 +86,10 @@ export default function Index() {
           ListHeaderComponent={ 
            <View className="px-5">
               <View className="flex flex-row items-center justify-between mt-5">
-                <View className="flex flex-row items-center">
+                <TouchableOpacity 
+                  className="flex flex-row items-center"
+                  onPress={() => router.push('/(root)/(tabs)/profile')}
+                >
                   <Image 
                     source={user?.avatar ? { uri: user.avatar } : icons.person} 
                     className="size-12 rounded-full" />
@@ -94,7 +97,7 @@ export default function Index() {
                       <Text className="text-xs font-rubik text-black-100">Good Morning</Text>
                       <Text className="text-base font-rubik-medium text-black-300">{user?.name}</Text>
                     </View>
-                </View>
+                </TouchableOpacity>
                 <Image source={icons.bell} className="size-6" />
             </View>
 

@@ -6,7 +6,7 @@ import {
 } from "@/lib/appwrite";
 import { useGlobalContext } from "@/lib/global-provider";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import React, { useState } from "react";
 import {
     ActivityIndicator,
@@ -22,6 +22,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const EditProfile = () => {
   const { user, refetch } = useGlobalContext();
+
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
 
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");

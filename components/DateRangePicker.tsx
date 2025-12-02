@@ -1,6 +1,6 @@
 import { calculateBookingPrice } from '@/lib/appwrite';
 import React, { useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 
 interface DateRangePickerProps {
@@ -165,81 +165,86 @@ export default function DateRangePicker({
     >
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Select Dates</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Text style={styles.closeButton}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Calendar
-            markedDates={getMarkedDates()}
-            markingType="period"
-            onDayPress={handleDayPress}
-            minDate={minimumDate}
-            theme={{
-              todayTextColor: '#2563eb',
-              arrowColor: '#2563eb',
-              monthTextColor: '#1e40af',
-              textMonthFontWeight: 'bold',
-            }}
-            style={styles.calendar}
-          />
-
-          <View style={styles.dateDisplay}>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateLabel}>Check-in</Text>
-              <Text style={styles.dateValue}>
-                {checkInDate || 'Select date'}
-              </Text>
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <View style={styles.header}>
+              <Text style={styles.title}>Select Dates</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Text style={styles.closeButton}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateLabel}>Check-out</Text>
-              <Text style={styles.dateValue}>
-                {checkOutDate || 'Select date'}
-              </Text>
-            </View>
-          </View>
 
-          {priceDetails && (
-            <View style={styles.priceBreakdown}>
-              <Text style={styles.breakdownTitle}>Price Breakdown</Text>
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>
-                  ${pricePerNight} × {priceDetails.numberOfNights} nights
+            <Calendar
+              markedDates={getMarkedDates()}
+              markingType="period"
+              onDayPress={handleDayPress}
+              minDate={minimumDate}
+              theme={{
+                todayTextColor: '#2563eb',
+                arrowColor: '#2563eb',
+                monthTextColor: '#1e40af',
+                textMonthFontWeight: 'bold',
+              }}
+              style={styles.calendar}
+            />
+
+            <View style={styles.dateDisplay}>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateLabel}>Check-in</Text>
+                <Text style={styles.dateValue}>
+                  {checkInDate || 'Select date'}
                 </Text>
-                <Text style={styles.priceValue}>${priceDetails.subtotal.toFixed(2)}</Text>
               </View>
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Service fee (10%)</Text>
-                <Text style={styles.priceValue}>${priceDetails.serviceFee.toFixed(2)}</Text>
-              </View>
-              <View style={[styles.priceRow, styles.totalRow]}>
-                <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>${priceDetails.totalPrice.toFixed(2)}</Text>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateLabel}>Check-out</Text>
+                <Text style={styles.dateValue}>
+                  {checkOutDate || 'Select date'}
+                </Text>
               </View>
             </View>
-          )}
 
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[styles.button, styles.clearButton]}
-              onPress={handleClear}
-            >
-              <Text style={styles.clearButtonText}>Clear</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.button,
-                styles.confirmButton,
-                (!checkInDate || !checkOutDate) && styles.disabledButton,
-              ]}
-              onPress={handleConfirm}
-              disabled={!checkInDate || !checkOutDate}
-            >
-              <Text style={styles.confirmButtonText}>Confirm Dates</Text>
-            </TouchableOpacity>
-          </View>
+            {priceDetails && (
+              <View style={styles.priceBreakdown}>
+                <Text style={styles.breakdownTitle}>Price Breakdown</Text>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>
+                    ${pricePerNight} × {priceDetails.numberOfNights} nights
+                  </Text>
+                  <Text style={styles.priceValue}>${priceDetails.subtotal.toFixed(2)}</Text>
+                </View>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Service fee (10%)</Text>
+                  <Text style={styles.priceValue}>${priceDetails.serviceFee.toFixed(2)}</Text>
+                </View>
+                <View style={[styles.priceRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Total</Text>
+                  <Text style={styles.totalValue}>${priceDetails.totalPrice.toFixed(2)}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.footer}>
+              <TouchableOpacity
+                style={[styles.button, styles.clearButton]}
+                onPress={handleClear}
+              >
+                <Text style={styles.clearButtonText}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  styles.confirmButton,
+                  (!checkInDate || !checkOutDate) && styles.disabledButton,
+                ]}
+                onPress={handleConfirm}
+                disabled={!checkInDate || !checkOutDate}
+              >
+                <Text style={styles.confirmButtonText}>Confirm Dates</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -256,8 +261,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: 20,
     maxHeight: '90%',
+  },
+  scrollContent: {
+    paddingBottom: 20,
   },
   header: {
     flexDirection: 'row',

@@ -1,19 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,8 +24,13 @@ import { MessageDocument, client, config, getAgentById, getConversationMessages 
 import { useGlobalContext } from '@/lib/global-provider';
 
 const ChatScreen = () => {
-  const router = useRouter();
   const { user } = useGlobalContext();
+
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
+
+  const router = useRouter();
   const { getAgent, setAgent } = useAgents();
   const params = useLocalSearchParams();
   const flatListRef = useRef<FlatList>(null);
@@ -114,57 +119,56 @@ const ChatScreen = () => {
         `databases.${config.databaseId}.collections.${config.messagesCollectionId}.documents`,
         (response: any) => {
           try {
-            console.log('💬 Message realtime event:', response);
-            
-            const payload = response.payload as MessageDocument;
-            
-            // Only handle messages for the current conversation
-            if (payload.conversationId !== conversationId) {
-              return;
-            }
-            
-            // Handle different event types
-            if (response.events[0]?.includes('.create')) {
-              console.log('➕ New message received:', payload);
-              setMessages(prev => {
-                // Check if message already exists to avoid duplicates
-                const exists = prev.some(msg => msg.$id === payload.$id);
-                if (exists) return prev;
-                
-                // Remove any temporary message with similar content
-                const filteredMessages = prev.filter(msg => 
-                  !(msg.$id.startsWith('temp_') && msg.content === payload.content && msg.senderId === payload.senderId)
+            // Only log important events, not connection status
+            if (response.events && response.events[0]) {
+              const payload = response.payload as MessageDocument;
+              
+              // Only handle messages for the current conversation
+              if (payload.conversationId !== conversationId) {
+                return;
+              }
+              
+              // Handle different event types
+              if (response.events[0]?.includes('.create')) {
+                setMessages(prev => {
+                  // Check if message already exists to avoid duplicates
+                  const exists = prev.some(msg => msg.$id === payload.$id);
+                  if (exists) return prev;
+                  
+                  // Remove any temporary message with similar content
+                  const filteredMessages = prev.filter(msg => 
+                    !(msg.$id.startsWith('temp_') && msg.content === payload.content && msg.senderId === payload.senderId)
+                  );
+                  
+                  const newMessages = [...filteredMessages, payload].sort((a, b) => 
+                    new Date(a.$createdAt).getTime() - new Date(b.$createdAt).getTime()
+                  );
+                  
+                  // Auto-scroll to bottom for new messages
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                  
+                  return newMessages;
+                });
+              } else if (response.events[0]?.includes('.update')) {
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.$id === payload.$id ? payload : msg
+                  )
                 );
-                
-                const newMessages = [...filteredMessages, payload].sort((a, b) => 
-                  new Date(a.$createdAt).getTime() - new Date(b.$createdAt).getTime()
-                );
-                
-                // Auto-scroll to bottom for new messages
-                setTimeout(() => {
-                  flatListRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-                
-                return newMessages;
-              });
-            } else if (response.events[0]?.includes('.update')) {
-              console.log('🔄 Message updated:', payload);
-              setMessages(prev => 
-                prev.map(msg => 
-                  msg.$id === payload.$id ? payload : msg
-                )
-              );
+              }
             }
           } catch (error) {
-            console.error('❌ Message subscription error:', error);
+            // Silently handle errors to avoid console spam
           }
         }
       );
       
-      console.log('🔔 Subscribed to messages for conversation:', conversationId);
       return subscription;
     } catch (error) {
-      console.error('Error subscribing to messages:', error);
+      // Silently handle subscription errors
+      return null;
     }
   };
 

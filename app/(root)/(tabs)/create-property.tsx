@@ -1,13 +1,20 @@
 import LocationPicker from '@/components/LocationPicker';
 import { facilities as facilityOptions } from '@/constants/data';
 import { config, createProperty, getPropertyById, updateProperty, uploadGalleryImages } from '@/lib/appwrite';
+import { useGlobalContext } from '@/lib/global-provider';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 const CreateProperty = () => {
+  const { user } = useGlobalContext();
+
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
+
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [price, setPrice] = useState('');

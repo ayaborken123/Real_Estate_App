@@ -1,27 +1,34 @@
 import icons from "@/constants/icons";
 import {
-  BookingDocument,
-  getAgentBookings,
-  getCurrentUser,
-  updateBookingStatus,
+    BookingDocument,
+    getAgentBookings,
+    getCurrentUser,
+    updateBookingStatus,
 } from "@/lib/appwrite";
-import { useRouter } from "expo-router";
+import { useGlobalContext } from "@/lib/global-provider";
+import { Redirect, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function BookingRequests() {
+  const { user } = useGlobalContext();
+
+  if (!user) {
+    return <Redirect href="/sign-in" />;
+  }
+
   const router = useRouter();
   const [bookings, setBookings] = useState<BookingDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -205,7 +212,7 @@ export default function BookingRequests() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
-          contentContainerStyle={{ paddingTop: 0 }}
+          contentContainerStyle={{ paddingTop: 0, paddingBottom: 100 }}
         >
         {filteredBookings.length === 0 ? (
             <View className="flex-1 items-center justify-center py-8">

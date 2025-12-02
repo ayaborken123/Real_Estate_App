@@ -114,6 +114,31 @@ export interface PayoutDocument extends Models.Document {
   agent?: any;
 }
 
+// Review System Types
+export interface ReviewDocument extends Models.Document {
+  propertyId: string;
+  userId: string;
+  bookingId?: string; // Optional: link to booking if review is from a guest who booked
+  rating: number; // 1-5 stars
+  comment: string;
+  likes: string[]; // Array of user IDs who liked this review
+  isEdited: boolean;
+  editedAt?: string;
+  // Populated relationships
+  user?: {
+    $id: string;
+    name: string;
+    avatar?: string;
+    email: string;
+  };
+  property?: PropertyDocument;
+}
+
+export interface ReviewLikeDocument extends Models.Document {
+  reviewId: string;
+  userId: string;
+}
+
 export const config = {
   endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
   projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
@@ -1188,10 +1213,32 @@ export async function getUserConversations(userId?: string): Promise<Conversatio
       [
         Query.contains("participantIds", [user.$id]),
         Query.orderDesc("lastMessageAt"),
+        Query.limit(100),
       ]
     );
 
-    return conversations.documents as unknown as ConversationDocument[];
+    // Remove duplicates and filter out conversations without messages
+    const uniqueConversations = new Map<string, ConversationDocument>();
+    
+    (conversations.documents as unknown as ConversationDocument[]).forEach(conv => {
+      // Only include conversations that have at least one message
+      if (conv.lastMessage && conv.lastMessage.trim() !== '') {
+        // Check if we already have this conversation (by checking participant combination)
+        const otherParticipant = conv.participantIds.find(id => id !== user.$id);
+        const conversationKey = [user.$id, otherParticipant].sort().join('_');
+        
+        // Only add if not already added, or if this is a newer version (more recent lastMessageAt)
+        const existing = uniqueConversations.get(conversationKey);
+        if (!existing || new Date(conv.lastMessageAt) > new Date(existing.lastMessageAt)) {
+          uniqueConversations.set(conversationKey, conv);
+        }
+      }
+    });
+
+    // Convert map back to array and sort by lastMessageAt
+    return Array.from(uniqueConversations.values()).sort((a, b) => 
+      new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
   } catch (error) {
     console.error("Error getting user conversations:", error);
     return [];
@@ -1948,3 +1995,350 @@ export async function getUserPayments(userId: string): Promise<PaymentDocument[]
     return [];
   }
 }
+
+// ==========================================
+// REVIEW SYSTEM FUNCTIONS
+// ==========================================
+
+/**
+ * Create a new review for a property
+ * @param reviewData - Review details including propertyId, rating, comment
+ * @returns Created review document
+ * 
+ * How it works:
+ * 1. Gets current authenticated user
+ * 2. Creates a review document with user info, rating (1-5), and comment
+ * 3. Initializes empty likes array and sets isEdited to false
+ * 4. Returns the created review with user data populated
+ */
+export async function createReview(reviewData: {
+  propertyId: string;
+  bookingId?: string;
+  rating: number;
+  comment: string;
+}): Promise<ReviewDocument> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Validate rating
+    if (reviewData.rating < 1 || reviewData.rating > 5) {
+      throw new Error("Rating must be between 1 and 5");
+    }
+
+    const review = await databases.createDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      ID.unique(),
+      {
+        propertyId: reviewData.propertyId,
+        userId: user.$id,
+        bookingId: reviewData.bookingId || undefined,
+        rating: reviewData.rating,
+        comment: reviewData.comment,
+        likes: [], // Initialize empty likes array
+        isEdited: false,
+      }
+    );
+
+    // Return review with user data
+    return {
+      ...review,
+      user: {
+        $id: user.$id,
+        name: user.name,
+        avatar: user.avatar,
+        email: user.email,
+      }
+    };
+  } catch (error) {
+    console.error("Error creating review:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update an existing review
+ * @param reviewId - ID of the review to update
+ * @param updateData - New rating and/or comment
+ * @returns Updated review document
+ * 
+ * How it works:
+ * 1. Verifies user owns the review
+ * 2. Updates rating and comment
+ * 3. Sets isEdited flag to true and records editedAt timestamp
+ */
+export async function updateReview(
+  reviewId: string,
+  updateData: {
+    rating?: number;
+    comment?: string;
+  }
+): Promise<ReviewDocument> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Get existing review to verify ownership
+    const existingReview = await databases.getDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId
+    );
+
+    if (existingReview.userId !== user.$id) {
+      throw new Error("You can only edit your own reviews");
+    }
+
+    // Validate rating if provided
+    if (updateData.rating && (updateData.rating < 1 || updateData.rating > 5)) {
+      throw new Error("Rating must be between 1 and 5");
+    }
+
+    const updatedReview = await databases.updateDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId,
+      {
+        ...(updateData.rating && { rating: updateData.rating }),
+        ...(updateData.comment && { comment: updateData.comment }),
+        isEdited: true,
+        editedAt: new Date().toISOString(),
+      }
+    );
+
+    return updatedReview;
+  } catch (error) {
+    console.error("Error updating review:", error);
+    throw error;
+  }
+}
+
+/**
+ * Delete a review
+ * @param reviewId - ID of the review to delete
+ * 
+ * How it works:
+ * 1. Verifies user owns the review
+ * 2. Deletes the review document from database
+ */
+export async function deleteReview(reviewId: string): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Verify ownership before deleting
+    const review = await databases.getDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId
+    );
+
+    if (review.userId !== user.$id) {
+      throw new Error("You can only delete your own reviews");
+    }
+
+    await databases.deleteDocument(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId
+    );
+  } catch (error) {
+    console.error("Error deleting review:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get all reviews for a specific property
+ * @param propertyId - ID of the property
+ * @returns Array of reviews with user data populated
+ * 
+ * How it works:
+ * 1. Queries reviews collection for matching propertyId
+ * 2. Orders by creation date (newest first)
+ * 3. For each review, fetches the user data
+ * 4. Returns reviews with populated user info
+ */
+export async function getPropertyReviews(propertyId: string): Promise<ReviewDocument[]> {
+  try {
+    const reviews = await databases.listDocuments<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      [
+        Query.equal("propertyId", propertyId),
+        Query.orderDesc("$createdAt"),
+        Query.limit(100), // Limit to 100 reviews
+      ]
+    );
+
+    // Populate user data for each review
+    const reviewsWithUsers = await Promise.all(
+      reviews.documents.map(async (review) => {
+        try {
+          const user = await databases.getDocument(
+            config.databaseId!,
+            config.agentsCollectionId!, // Assuming users are in agents collection
+            review.userId
+          );
+
+          return {
+            ...review,
+            user: {
+              $id: user.$id,
+              name: user.name,
+              avatar: user.avatar,
+              email: user.email,
+            }
+          };
+        } catch (error) {
+          // If user not found, return review without user data
+          return review;
+        }
+      })
+    );
+
+    return reviewsWithUsers;
+  } catch (error: any) {
+    // Silently handle missing collection
+    if (error?.message?.includes('Collection with the requested ID could not be found')) {
+      return [];
+    }
+    console.error("Error fetching property reviews:", error);
+    return [];
+  }
+}
+
+/**
+ * Toggle like/unlike on a review
+ * @param reviewId - ID of the review
+ * @returns Updated review with new likes array
+ * 
+ * How it works:
+ * 1. Gets current review document
+ * 2. Checks if user already liked it
+ * 3. If liked: removes user ID from likes array
+ * 4. If not liked: adds user ID to likes array
+ * 5. Updates the review document with new likes array
+ */
+export async function toggleReviewLike(reviewId: string): Promise<ReviewDocument> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    // Get current review
+    const review = await databases.getDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId
+    );
+
+    const likes = review.likes || [];
+    const userIndex = likes.indexOf(user.$id);
+    
+    let updatedLikes: string[];
+    
+    if (userIndex > -1) {
+      // User already liked - remove like
+      updatedLikes = likes.filter(id => id !== user.$id);
+    } else {
+      // User hasn't liked - add like
+      updatedLikes = [...likes, user.$id];
+    }
+
+    const updatedReview = await databases.updateDocument<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      reviewId,
+      {
+        likes: updatedLikes,
+      }
+    );
+
+    return updatedReview;
+  } catch (error) {
+    console.error("Error toggling review like:", error);
+    throw error;
+  }
+}
+
+/**
+ * Check if current user has already reviewed a property
+ * @param propertyId - ID of the property
+ * @returns Review document if exists, null otherwise
+ */
+export async function getUserReviewForProperty(propertyId: string): Promise<ReviewDocument | null> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return null;
+    }
+
+    const reviews = await databases.listDocuments<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      [
+        Query.equal("propertyId", propertyId),
+        Query.equal("userId", user.$id),
+        Query.limit(1),
+      ]
+    );
+
+    return reviews.documents.length > 0 ? reviews.documents[0] : null;
+  } catch (error: any) {
+    // Silently handle missing collection
+    if (error?.message?.includes('Collection with the requested ID could not be found')) {
+      return null;
+    }
+    console.error("Error checking user review:", error);
+    return null;
+  }
+}
+
+/**
+ * Get average rating for a property
+ * @param propertyId - ID of the property
+ * @returns Object with average rating and review count
+ */
+export async function getPropertyRating(propertyId: string): Promise<{
+  average: number;
+  count: number;
+}> {
+  try {
+    const reviews = await databases.listDocuments<ReviewDocument>(
+      config.databaseId!,
+      config.reviewsCollectionId!,
+      [
+        Query.equal("propertyId", propertyId),
+      ]
+    );
+
+    if (reviews.documents.length === 0) {
+      return { average: 0, count: 0 };
+    }
+
+    const totalRating = reviews.documents.reduce((sum, review) => sum + review.rating, 0);
+    const average = totalRating / reviews.documents.length;
+
+    return {
+      average: Math.round(average * 10) / 10, // Round to 1 decimal
+      count: reviews.documents.length,
+    };
+  } catch (error: any) {
+    // Silently handle missing collection
+    if (error?.message?.includes('Collection with the requested ID could not be found')) {
+      return { average: 0, count: 0 };
+    }
+    console.error("Error calculating property rating:", error);
+    return { average: 0, count: 0 };
+  }
+}
+
