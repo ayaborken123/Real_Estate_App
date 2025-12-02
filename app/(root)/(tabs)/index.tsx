@@ -1,10 +1,12 @@
 import { Card, FeaturedCard, PropertyDocument } from "@/components/Cards";
 import Filters from "@/components/Filters";
 import NoResults from "@/components/NoResults";
+import { NotificationBadge } from "@/components/NotificationBadge";
 import Search from "@/components/Search";
 import icons from "@/constants/icons";
 import { getLatesProperties, getProperties } from "@/lib/appwrite";
 import { useGlobalContext } from "@/lib/global-provider";
+import { useNotificationsContext } from "@/lib/notifications-provider";
 import { useAppwrite } from "@/lib/useAppwrite";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect } from "react";
@@ -17,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Index() {
   const { user} = useGlobalContext();
+  const { unreadCount } = useNotificationsContext();
   const params= useLocalSearchParams<{
     query?: string;
     filter?: string;
@@ -98,7 +101,15 @@ export default function Index() {
                       <Text className="text-base font-rubik-medium text-black-300">{user?.name}</Text>
                     </View>
                 </TouchableOpacity>
-                <Image source={icons.bell} className="size-6" />
+                <TouchableOpacity
+                  className="relative"
+                  onPress={() => router.push('/(root)/(tabs)/notifications')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open notifications"
+                >
+                  <Image source={icons.bell} className="size-6" />
+                  <NotificationBadge count={unreadCount} size="small" />
+                </TouchableOpacity>
             </View>
 
         <Search />

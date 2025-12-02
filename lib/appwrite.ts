@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import { openAuthSessionAsync } from "expo-web-browser";
 import { Platform } from "react-native";
-import { Account, Avatars, Client, Databases, ID, Models, OAuthProvider, Query, Storage } from "react-native-appwrite";
+import { Account, Avatars, Client, Databases, ID, Models, OAuthProvider, Permission, Query, Role, Storage } from "react-native-appwrite";
 
 // Export Query pour l'utiliser dans d'autres fichiers
 export { Query };
@@ -1333,6 +1333,25 @@ export async function sendMessage(conversationId: string, receiverId: string, co
       }
     );
 
+    // Create an in-app notification for the receiver (respecting preferences)
+    try {
+      const allow = await shouldSendNotification(receiverId, 'messages');
+      if (allow) {
+        await createNotification({
+          userId: receiverId,
+          type: 'message',
+          title: `New message from ${user.name || 'user'}`,
+          message: content.substring(0, 95), // Max 100 chars in DB, leave room for ellipsis
+          category: 'messages',
+          priority: 'normal',
+          actionUrl: `/chat/${conversationId}?otherUserId=${user.$id}`,
+          data: { conversationId, senderId: user.$id },
+        });
+      }
+    } catch (e) {
+      console.warn('sendMessage: failed to create notification (non-fatal):', e);
+    }
+
     return {
       success: true,
       message: message as unknown as MessageDocument,
@@ -1476,6 +1495,25 @@ export async function sendImageMessage(conversationId: string, receiverId: strin
       }
     );
 
+    // Notify receiver for image message
+    try {
+      const allow = await shouldSendNotification(receiverId, 'messages');
+      if (allow) {
+        await createNotification({
+          userId: receiverId,
+          type: 'message',
+          title: `New photo from ${user.name || 'user'}`,
+          message: 'Sent you an image',
+          category: 'messages',
+          priority: 'normal',
+          actionUrl: `/chat/${conversationId}?otherUserId=${user.$id}`,
+          data: { conversationId, senderId: user.$id },
+        });
+      }
+    } catch (e) {
+      console.warn('sendImageMessage: failed to create notification (non-fatal):', e);
+    }
+
     return {
       success: true,
       message: message as unknown as MessageDocument,
@@ -1540,7 +1578,6 @@ export async function getAllAgents(): Promise<any[]> {
     if (agentIds.length === 0) {
       return [];
     }
-
     // Get agent details for those who have properties
     const agents = await databases.listDocuments(
       config.databaseId!,
@@ -1742,6 +1779,33 @@ export async function createBooking(bookingData: {
     );
 
     console.log("Booking created successfully:", booking.$id);
+
+    // Notify agent about the new booking request
+    try {
+      const allow = await shouldSendNotification(bookingData.agentId, 'bookings');
+      if (allow) {
+        // Try to get current user name and property name for a better message
+        const current = await getCurrentUser();
+        let propertyName = '';
+        try {
+          const prop = await getPropertyById({ id: bookingData.propertyId });
+          propertyName = (prop as any)?.name || '';
+        } catch {}
+        await createNotification({
+          userId: bookingData.agentId,
+          type: 'booking_request',
+          title: 'New booking request',
+          message: `${current?.name || 'A guest'} requested ${propertyName || 'your property'}`,
+          category: 'bookings',
+          priority: 'high',
+          actionUrl: `/\(root\)/\(tabs\)/bookings`,
+          data: { bookingId: booking.$id, propertyId: bookingData.propertyId },
+        });
+      }
+    } catch (e) {
+      console.warn('createBooking: failed to create notification (non-fatal):', e);
+    }
+
     return booking;
   } catch (error) {
     console.error("Error creating booking:", error);
@@ -1844,6 +1908,60 @@ export async function updateBookingStatus(
     );
 
     console.log(`Booking ${bookingId} status updated to ${status}`);
+
+    // Send notifications to the guest based on status
+    try {
+      let title = '';
+      let message = '';
+      let type: NotificationType = 'system';
+      if (status === 'confirmed') {
+        title = 'Booking confirmed 🎉';
+        message = 'Your booking has been accepted by the host.';
+        type = 'booking_confirmed';
+      } else if (status === 'rejected') {
+        title = 'Booking request declined';
+        message = rejectionReason ? `Reason: ${rejectionReason}` : 'Your request was declined.';
+        type = 'booking_rejected';
+      }
+
+      if (title) {
+        // Extract userId string - CRITICAL: guestId may be a populated relation object
+        let guestUserId: string;
+        if (typeof booking.guestId === 'string') {
+          guestUserId = booking.guestId;
+        } else if (booking.guestId && typeof booking.guestId === 'object' && '$id' in booking.guestId) {
+          guestUserId = (booking.guestId as any).$id;
+        } else {
+          console.warn('Unable to extract guestId from booking:', booking.guestId);
+          return booking; // Skip notification
+        }
+        
+        console.log('📧 Sending booking notification to guestId:', guestUserId);
+        
+        const allow = await shouldSendNotification(guestUserId, 'bookings');
+        if (allow) {
+          // Fetch property to enrich message (best-effort)
+          let propertyName = '';
+          try {
+            const prop = await getPropertyById({ id: booking.propertyId });
+            propertyName = (prop as any)?.name || '';
+          } catch {}
+          await createNotification({
+            userId: guestUserId,
+            type,
+            title,
+            message: propertyName ? `${message} — ${propertyName}` : message,
+            category: 'bookings',
+            priority: 'high',
+            actionUrl: `/(root)/(tabs)/bookings`,
+            data: { bookingId: booking.$id },
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('updateBookingStatus: failed to create notification (non-fatal):', e);
+    }
+
     return booking;
   } catch (error) {
     console.error("Error updating booking status:", error);
@@ -1873,6 +1991,41 @@ export async function cancelBooking(
     );
 
     console.log(`Booking ${bookingId} cancelled by ${cancelledBy}`);
+
+    // Notify the other party
+    try {
+      const notifyUserId = cancelledBy === 'guest' ? booking.agentId : booking.guestId;
+      
+      // Extract userId string - CRITICAL: IDs may be populated relation objects
+      let notifyUserIdString: string;
+      if (typeof notifyUserId === 'string') {
+        notifyUserIdString = notifyUserId;
+      } else if (notifyUserId && typeof notifyUserId === 'object' && '$id' in notifyUserId) {
+        notifyUserIdString = (notifyUserId as any).$id;
+      } else {
+        console.warn('Unable to extract userId from booking relation:', notifyUserId);
+        return booking; // Skip notification
+      }
+      
+      console.log('📧 Sending cancel notification to userId:', notifyUserIdString);
+      
+      const allow = await shouldSendNotification(notifyUserIdString, 'bookings');
+      if (allow) {
+        await createNotification({
+          userId: notifyUserIdString,
+          type: 'booking_cancelled',
+          title: 'Booking cancelled',
+          message: reason ? `Reason: ${reason}` : 'The booking was cancelled.',
+          category: 'bookings',
+          priority: 'high',
+          actionUrl: `/(root)/(tabs)/bookings`,
+          data: { bookingId: booking.$id, cancelledBy },
+        });
+      }
+    } catch (e) {
+      console.warn('cancelBooking: failed to create notification (non-fatal):', e);
+    }
+
     return booking;
   } catch (error) {
     console.error("Error cancelling booking:", error);
@@ -1896,6 +2049,41 @@ export async function updateBookingPaymentStatus(
     );
 
     console.log(`Booking ${bookingId} payment status updated to ${paymentStatus}`);
+
+    // Notify agent when payment is completed
+    try {
+      if (paymentStatus === 'paid') {
+        // Extract userId string - CRITICAL: agentId may be populated relation object
+        let agentUserId: string;
+        if (typeof booking.agentId === 'string') {
+          agentUserId = booking.agentId;
+        } else if (booking.agentId && typeof booking.agentId === 'object' && '$id' in booking.agentId) {
+          agentUserId = (booking.agentId as any).$id;
+        } else {
+          console.warn('Unable to extract agentId from booking:', booking.agentId);
+          return booking; // Skip notification
+        }
+        
+        console.log('📧 Sending payment notification to agentId:', agentUserId);
+        
+        const allow = await shouldSendNotification(agentUserId, 'payments');
+        if (allow) {
+          await createNotification({
+            userId: agentUserId,
+            type: 'payment_received',
+            title: 'Payment received 💰',
+            message: `A booking has been paid by the guest`,
+            category: 'payments',
+            priority: 'high',
+            actionUrl: `/(root)/(tabs)/bookings`,
+            data: { bookingId: booking.$id, amount: booking.totalPrice },
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('updateBookingPaymentStatus: failed to create notification (non-fatal):', e);
+    }
+
     return booking;
   } catch (error) {
     console.error("Error updating payment status:", error);
@@ -2131,7 +2319,6 @@ export async function updateReview(
     if (!user) {
       throw new Error("User not authenticated");
     }
-
     // Get existing review to verify ownership
     const existingReview = await databases.getDocument<ReviewDocument>(
       config.databaseId!,
@@ -2411,6 +2598,13 @@ export async function createNotification(data: {
   expiresAt?: string;
 }): Promise<NotificationDocument> {
   try {
+    console.log('🔔 CREATING NOTIFICATION:', {
+      userId: data.userId,
+      type: data.type,
+      title: data.title,
+      category: data.category,
+    });
+
     const notificationData: any = {
       userId: data.userId,
       type: data.type,
@@ -2430,12 +2624,21 @@ export async function createNotification(data: {
       config.databaseId!,
       config.notificationsCollectionId!,
       ID.unique(),
-      notificationData
+      notificationData,
+      [
+        // NOTE: On client-side, Appwrite only allows assigning roles that include the current user.
+        // To ensure the receiver can read/update (mark as read) without server-side functions,
+        // we grant permissions to all authenticated users and filter by userId in queries.
+        Permission.read(Role.users()),
+        Permission.update(Role.users()),
+        Permission.delete(Role.users()),
+      ]
     );
 
+    console.log('✅ NOTIFICATION CREATED:', notification.$id);
     return notification;
   } catch (error) {
-    console.error("Error creating notification:", error);
+    console.error("❌ ERROR creating notification:", error);
     throw error;
   }
 }
@@ -2495,6 +2698,11 @@ export async function getUserNotifications(
  */
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
   try {
+    if (!userId) {
+      console.warn('getUnreadNotificationCount: No userId provided');
+      return 0;
+    }
+
     const response = await databases.listDocuments(
       config.databaseId!,
       config.notificationsCollectionId!,
@@ -2505,10 +2713,41 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
       ]
     );
 
+    console.log(`📬 Unread notifications for ${userId}: ${response.total}`);
     return response.total;
-  } catch (error) {
-    console.error("Error fetching unread count:", error);
+  } catch (error: any) {
+    // Handle network errors gracefully
+    if (error?.message?.includes('fetch') || error?.message?.includes('Network')) {
+      console.warn('getUnreadNotificationCount: Network error, returning cached/zero');
+      return 0;
+    }
+    console.error("Error fetching unread count:", error?.message || error);
     return 0;
+  }
+}
+
+/**
+ * DEBUG: Get ALL notifications in database (not filtered by user)
+ */
+export async function getAllNotificationsDebug(limit: number = 50): Promise<{ documents: NotificationDocument[]; total: number }> {
+  try {
+    const response = await databases.listDocuments<NotificationDocument>(
+      config.databaseId!,
+      config.notificationsCollectionId!,
+      [
+        Query.orderDesc("$createdAt"),
+        Query.limit(limit),
+      ]
+    );
+
+    console.log(`🔍 DEBUG: Found ${response.total} total notifications in database`);
+    return {
+      documents: response.documents,
+      total: response.total,
+    };
+  } catch (error) {
+    console.error("Error fetching all notifications:", error);
+    return { documents: [], total: 0 };
   }
 }
 
@@ -2619,21 +2858,39 @@ export async function getNotificationPreferences(
   userId: string
 ): Promise<NotificationPreferencesDocument> {
   try {
-    const response = await databases.listDocuments<NotificationPreferencesDocument>(
-      config.databaseId!,
-      config.notificationPreferencesCollectionId!,
-      [Query.equal("userId", userId)]
-    );
+    // Query by document ID instead of userId attribute since preferences use userId as document ID
+    let response;
+    try {
+      // Try to get by document ID first
+      const doc = await databases.getDocument<NotificationPreferencesDocument>(
+        config.databaseId!,
+        config.notificationPreferencesCollectionId!,
+        userId
+      );
+      return doc;
+    } catch {
+      // If not found by ID, list all and filter (fallback)
+      response = await databases.listDocuments<NotificationPreferencesDocument>(
+        config.databaseId!,
+        config.notificationPreferencesCollectionId!,
+        [Query.limit(100)]
+      );
+    }
 
-    if (response.documents.length > 0) {
-      return response.documents[0];
+    // Filter manually if needed
+    const userPrefs = response?.documents.find((doc: any) => 
+      doc.userId === userId || doc.$id === userId
+    );
+    
+    if (userPrefs) {
+      return userPrefs;
     }
 
     // Create default preferences if none exist
     const defaultPreferences = await databases.createDocument<NotificationPreferencesDocument>(
       config.databaseId!,
       config.notificationPreferencesCollectionId!,
-      ID.unique(),
+      userId, // Use userId as document ID
       {
         userId,
         pushEnabled: true,
